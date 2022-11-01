@@ -22,6 +22,11 @@ namespace leveldb {
 // Standard Put... routines append to a string
 void PutFixed32(std::string* dst, uint32_t value);
 void PutFixed64(std::string* dst, uint64_t value);
+/**
+ *
+ * @param dst
+ * @param value
+ */
 void PutVarint32(std::string* dst, uint32_t value);
 void PutVarint64(std::string* dst, uint64_t value);
 void PutLengthPrefixedSlice(std::string* dst, const Slice& value);
@@ -40,11 +45,22 @@ const char* GetVarint32Ptr(const char* p, const char* limit, uint32_t* v);
 const char* GetVarint64Ptr(const char* p, const char* limit, uint64_t* v);
 
 // Returns the length of the varint32 or varint64 encoding of "v"
+/**
+ * 计算一个变量变长编码的长度
+ * @param v
+ * @return
+ */
 int VarintLength(uint64_t v);
 
 // Lower-level versions of Put... that write directly into a character buffer
 // and return a pointer just past the last byte written.
 // REQUIRES: dst has enough space for the value being written
+/**
+ * 将一个32位无符号int进行编码并保存到dst指向的空间
+ * @param dst
+ * @param value
+ * @return
+ */
 char* EncodeVarint32(char* dst, uint32_t value);
 char* EncodeVarint64(char* dst, uint64_t value);
 
