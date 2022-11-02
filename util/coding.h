@@ -34,6 +34,12 @@ void PutLengthPrefixedSlice(std::string* dst, const Slice& value);
 // Standard Get... routines parse a value from the beginning of a Slice
 // and advance the slice past the parsed value.
 bool GetVarint32(Slice* input, uint32_t* value);
+/**
+ * 解析变长编码
+ * @param input
+ * @param value
+ * @return
+ */
 bool GetVarint64(Slice* input, uint64_t* value);
 bool GetLengthPrefixedSlice(Slice* input, Slice* result);
 
