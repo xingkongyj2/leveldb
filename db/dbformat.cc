@@ -114,22 +114,36 @@ bool InternalFilterPolicy::KeyMayMatch(const Slice& key, const Slice& f) const {
   return user_policy_->KeyMayMatch(ExtractUserKey(key), f);
 }
 
+/**
+ * LookupKey = [klength] [User key] [Sequence] [Type]
+ *
+ * LookupKey  = memtableKey = klength + internalKey
+ * ParsedInternalKey  = InternalKey = User key + Sequence + Type
+ */
 LookupKey::LookupKey(const Slice& user_key, SequenceNumber s) {
   size_t usize = user_key.size();
+  //SequenceNumber + ValueType占8个字节，encode(internal_key_size)至多占5个字节，因此预估至多+13个字节
   size_t needed = usize + 13;  // A conservative estimate
   char* dst;
+  //优先使用预留的200个字节
   if (needed <= sizeof(space_)) {
     dst = space_;
   } else {
     dst = new char[needed];
   }
+  //start_指向最开始位置
   start_ = dst;
+  //memtable的internal_key_size=usize+8，对应MemTable::Add实现。
+  //LookupKey的小大需要将tag的8个字节算进去
   dst = EncodeVarint32(dst, usize + 8);
+  //kstart_指向userkey开始位置
   kstart_ = dst;
   std::memcpy(dst, user_key.data(), usize);
   dst += usize;
+  //EncodeFixed64如果是小端，则直接内存 copy；如果是大端，则反向 copy，固定占用8bytes。
   EncodeFixed64(dst, PackSequenceAndType(s, kValueTypeForSeek));
   dst += 8;
+  //end_指向(s << 8 | type)的下一个字节
   end_ = dst;
 }
 
