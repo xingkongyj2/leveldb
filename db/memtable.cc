@@ -11,9 +11,13 @@
 
 namespace leveldb {
 
+/**
+ * 给出LookupKey的地址，解析出internal key
+ */
 static Slice GetLengthPrefixedSlice(const char* data) {
   uint32_t len;
   const char* p = data;
+  //跳过length的字节，获取internal key的起始地址，length最多占5个字节。
   p = GetVarint32Ptr(p, p + 5, &len);  // +5: we assume "p" is not corrupted
   return Slice(p, len);
 }
@@ -25,9 +29,12 @@ MemTable::~MemTable() { assert(refs_ == 0); }
 
 size_t MemTable::ApproximateMemoryUsage() { return arena_.MemoryUsage(); }
 
+/**
+ * operator()负责解析出 internal key，交给 comparator
+ */
 int MemTable::KeyComparator::operator()(const char* aptr,
                                         const char* bptr) const {
-  // Internal keys are encoded as length-prefixed strings.
+  //内部键被编码为以长度为前缀的字符串。
   Slice a = GetLengthPrefixedSlice(aptr);
   Slice b = GetLengthPrefixedSlice(bptr);
   return comparator.Compare(a, b);

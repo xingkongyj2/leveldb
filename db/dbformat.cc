@@ -44,6 +44,11 @@ const char* InternalKeyComparator::Name() const {
   return "leveldb.InternalKeyComparator";
 }
 
+/**
+ * 从slice里解析出userkey，与8字节的tag:(sequence << 8) | type
+ * userkey按照字母序比较
+ * 如果userkey相同，则tag按大小逆序比较，即sequence越大越靠前
+ */
 int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
   // Order by:
   //    increasing user key (according to user-supplied comparator)
@@ -51,6 +56,8 @@ int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
   //    decreasing type (though sequence# should be enough to disambiguate)
   int r = user_comparator_->Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
   if (r == 0) {
+    //sequence越大，排序结果越小
+    //DecodeFixed64解析出的实际上是sequence << 8 | type，因为 sequence 占高位，因此直接比较大小也能代表sequence
     const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8);
     const uint64_t bnum = DecodeFixed64(bkey.data() + bkey.size() - 8);
     if (anum > bnum) {

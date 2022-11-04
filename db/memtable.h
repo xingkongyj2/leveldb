@@ -66,6 +66,8 @@ class MemTable {
   friend class MemTableIterator;
   friend class MemTableBackwardIterator;
 
+  //operator()负责解析出 internal key，交给 comparator 比较:
+  //[C++ 中的嵌套类和局部类](https://blog.csdn.net/liyuanbhu/article/details/43897979)
   struct KeyComparator {
     const InternalKeyComparator comparator;
     explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) {}
