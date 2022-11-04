@@ -80,6 +80,9 @@ class MemTableIterator : public Iterator {
 
 Iterator* MemTable::NewIterator() { return new MemTableIterator(&table_); }
 
+/**
+ * Add过程的代码就是组装memtable key，然后调用SkipList接口写入。
+ */
 void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
                    const Slice& value) {
   // Format of an entry is concatenation of:
@@ -90,7 +93,12 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
   //  value bytes  : char[value.size()]
   size_t key_size = key.size();
   size_t val_size = value.size();
+  //InternalKey长度 = UserKey长度 + 8bytes(存储SequenceNumber + ValueType)
   size_t internal_key_size = key_size + 8;
+  //用户写入的key value在内部实现里增加了sequence type
+  //而到了MemTable实际按照以下格式组成一段buffer
+  //|encode(internal_key_size)  |key  |sequence  type  |encode(value_size)  |value  |
+  //这里先计算大小，申请对应大小的buffer
   const size_t encoded_len = VarintLength(internal_key_size) +
                              internal_key_size + VarintLength(val_size) +
                              val_size;
@@ -98,14 +106,27 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
   char* p = EncodeVarint32(buf, internal_key_size);
   std::memcpy(p, key.data(), key_size);
   p += key_size;
+  //append sequence_number && type
+  //64bits = 8bytes，前7个bytes存储s，最后一个bytes存储type.
+  //这里8bytes对应前面 internal_key_size = key_size + 8
+  //也是Fixed64而不是Varint64的原因
   EncodeFixed64(p, (s << 8) | type);
   p += 8;
   p = EncodeVarint32(p, val_size);
   std::memcpy(p, value.data(), val_size);
   assert(p + val_size == buf + encoded_len);
+  //写入table_的buffer包含了key/value及附属信息
   table_.Insert(buf);
 }
 
+/**
+ * Get通过SkipList::Iterator::Seek接口获取第一个operator >=的 Node。
+ * 传入的第一个参数是LookupKey包含了 userkey，
+ * 同时指定了一个较大的SequenceNumber s（具体多么大我们后续分解），
+ * 而根据InternalKeyComparator的定义，返回值有两种情况：
+ *     1.如果该 userkey 存在，返回小于 s 的最大 sequence number 的 Node.
+ *     2.如果 userkey 不存在，返回第一个 > userkey 的 Node.
+ */
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
   Slice memkey = key.memtable_key();
   Table::Iterator iter(&table_);
