@@ -120,7 +120,7 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
 }
 
 /**
- * Get通过SkipList::Iterator::Seek接口获取第一个operator >=的 Node。
+ * Get通过SkipList::Iterator::Seek接口获取第一个 >=查询key 的Node
  * 传入的第一个参数是LookupKey包含了 userkey，
  * 同时指定了一个较大的SequenceNumber s（具体多么大我们后续分解），
  * 而根据InternalKeyComparator的定义，返回值有两种情况：
@@ -143,12 +143,24 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
     // all entries with overly large sequence numbers.
     const char* entry = iter.key();
     uint32_t key_length;
+    //解析出internal_key的长度存储到key_length
+    //key_ptr指向internal_key
     const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+    //Seek返回的是第一个>=key的Node(>= <=> InternalKeyComparator::Compare)
+    //因此先判断下userkey是否相等
     if (comparator_.comparator.user_comparator()->Compare(
             Slice(key_ptr, key_length - 8), key.user_key()) == 0) {
       // Correct user key
+      // tag = (s << 8) | type
       const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
+      //type存储在最后一个字节
       switch (static_cast<ValueType>(tag & 0xff)) {
+        //因为只有新增和删除，所以一个key只有两种状态。
+        //取数情况：
+        //    key不存在：返回false
+        //    key存在：
+        //        key是写入状态：正常返回
+        //        key是删除状态：返回空
         case kTypeValue: {
           Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
           value->assign(v.data(), v.size());
