@@ -145,18 +145,28 @@ class Version {
   void ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
                           bool (*func)(void*, int, FileMetaData*));
 
+  //将多个Version链接起来的
   VersionSet* vset_;  // VersionSet to which this Version belongs
   Version* next_;     // Next version in linked list
   Version* prev_;     // Previous version in linked list
   int refs_;          // Number of live refs to this version
 
   // List of files per level
+  // 每个版本Version都记录了它所包含的各个level中的所有文件，
+  // 即：files_成员变量std::vector<FileMetaData*> files_[config::kNumLevels]，
+  // 它是一个数组，数组下标就是level，每个level记录的是文件元数据集合，也就是该level所包含的全部文件元数据信息。
+  //
+  // levelDB有很多个版本，每个版本都包含了所有层的文件。
+  // 新的版本=旧的版本+修改信息。
   std::vector<FileMetaData*> files_[config::kNumLevels];
 
   // Next file to compact based on seek stats.
+  //4个与文件压缩相关的信息。
+  // LevelDB通过合并操作来生成一个新的版本，因此，需要在当前Version中指定如何合并。
+  // 当前level的一个文件需要与下一级里面的文件合并生成多个新文件，
+  // 那就要求当前版中需要记录如何生成下一个版本，Version中就是通过最后4个compaction成员变量来记录的。
   FileMetaData* file_to_compact_;
   int file_to_compact_level_;
-
   // Level that should be compacted next and its compaction score.
   // Score < 1 means compaction is not strictly needed.  These fields
   // are initialized by Finalize().

@@ -566,6 +566,7 @@ std::string Version::DebugString() const {
 // A helper class so we can efficiently apply a whole sequence
 // of edits to a particular state without creating intermediate
 // Versions that contain full copies of the intermediate state.
+//Version + VersionEdit = new Version
 class VersionSet::Builder {
  private:
   // Helper to sort by v->files_[file_number].smallest
@@ -591,6 +592,8 @@ class VersionSet::Builder {
 
   VersionSet* vset_;
   Version* base_;
+  // 将删除和新增的文件记录到LevelState levels_[config::kNumLevels]中，
+  // 然后和当前版本Current中记录的已存在版本，一起生成一个新版本Version。
   LevelState levels_[config::kNumLevels];
 
  public:
@@ -791,8 +794,11 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
 
   Version* v = new Version(this);
   {
+    //把current_作为基础项
     Builder builder(this, current_);
+    //累加增量版本edit：current_ + edit
     builder.Apply(edit);
+    //把结果保存到新版本v：current_ + edit = v
     builder.SaveTo(v);
   }
   Finalize(v);
