@@ -143,13 +143,30 @@ bool GetVarint32(Slice* input, uint32_t* value) {
   }
 }
 
+
+/**
+ * 取出从p开始的第一个值，返回下一个值的开始地址。
+ * 简述：取第1个字节的低7位放入result的0-6位，取第2个字节的低7位放入result的7-13位·····
+ *      直到取的字节的最高位为0或者将result的64个字节装满结束。
+ * 1.数据占用字节==1
+ *     shift==0，不左移，即result=result｜byte，因为result为0，所以result｜byte的值就是byte的值。
+ *     结果：result=byte。
+ * 2.数据占用字节>1
+ *     byte & 127,得到这个byte低7位的值，因为是第一个字节shift==0。
+ *     然后result得到了byte的低7位的值。
+ *     继续得到下一个字节内容。如果最高位还是为1，byte & 127,继续得到这个byte低7位的值，
+ *         但是由于这7个字节是第2个字节中的内容，所以向左偏移7位，得到第2个字节的正确数值（14位，0-6是0，7-13是第二个字节的7个字节）。
+ *     将第2个字节的正确数值 ｜ result = 得到第一个字节与第二个字节合并后的14个字节
+ */
 const char* GetVarint64Ptr(const char* p, const char* limit, uint64_t* value) {
   uint64_t result = 0;
   for (uint32_t shift = 0; shift <= 63 && p < limit; shift += 7) {
-    //get one byte value
+    //取出一个字节的值
     uint64_t byte = *(reinterpret_cast<const uint8_t*>(p));
     //input指针一直在递增！
     p++;
+    //byte & 128用来判断byte的最高位是否为1，即数据是否结束。
+    // 数据占用字节>1
     if (byte & 128) {
       // More bytes are present
       result |= ((byte & 127) << shift);

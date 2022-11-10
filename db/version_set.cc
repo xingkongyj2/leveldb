@@ -631,6 +631,7 @@ class VersionSet::Builder {
   // Apply all of the edits in *edit to the current state.
   void Apply(const VersionEdit* edit) {
     // Update compaction pointers
+    // 把增量版本中压缩指针的位置记录到vset_中
     for (size_t i = 0; i < edit->compact_pointers_.size(); i++) {
       const int level = edit->compact_pointers_[i].first;
       vset_->compact_pointer_[level] =
@@ -638,6 +639,7 @@ class VersionSet::Builder {
     }
 
     // Delete files
+    // 把增量版本中删除的文件file记录到Builder.levels_的已删除文件中
     for (const auto& deleted_file_set_kvp : edit->deleted_files_) {
       const int level = deleted_file_set_kvp.first;
       const uint64_t number = deleted_file_set_kvp.second;
@@ -645,6 +647,7 @@ class VersionSet::Builder {
     }
 
     // Add new files
+    // 把增量版本中新增的文件file记录到Builder.levels_的已添加文件中
     for (size_t i = 0; i < edit->new_files_.size(); i++) {
       const int level = edit->new_files_[i].first;
       FileMetaData* f = new FileMetaData(edit->new_files_[i].second);
@@ -663,6 +666,7 @@ class VersionSet::Builder {
       // same as the compaction of 40KB of data.  We are a little
       // conservative and allow approximately one seek for every 16KB
       // of data before triggering a compaction.
+      // 为了提高读性能，文件大小除以16K可以得到允许的seek次数，超过这个次数，将触发文件被压缩Compaction。
       f->allowed_seeks = static_cast<int>((f->file_size / 16384U));
       if (f->allowed_seeks < 100) f->allowed_seeks = 100;
 
@@ -672,29 +676,45 @@ class VersionSet::Builder {
   }
 
   // Save the current state in *v.
+  /**
+   * 遍历所有的层级level：
+   *    1）把base_files和added这两个有序的数组合并到一起。
+   *    2）遍历这些新增文件和base文件：看一下file是否是在要删除的列表里面，
+   *       如果不在，那么添加到version v相应的level的文件列表中。
+  * @param v
+   */
   void SaveTo(Version* v) {
+    // 这个对象的操作方法operator返回是否较小的key的bool值
     BySmallestKey cmp;
     cmp.internal_comparator = &vset_->icmp_;
+    // 遍历所有的层级level
     for (int level = 0; level < config::kNumLevels; level++) {
       // Merge the set of added files with the set of pre-existing files.
       // Drop any deleted files.  Store the result in *v.
+      // 每一层级中，当前版本Current里面的已存在文件。
       const std::vector<FileMetaData*>& base_files = base_->files_[level];
       std::vector<FileMetaData*>::const_iterator base_iter = base_files.begin();
       std::vector<FileMetaData*>::const_iterator base_end = base_files.end();
+      // Builder里面记录的增量版本的新添加文件状态
       const FileSet* added_files = levels_[level].added_files;
+      // 待保存的版本Version中文件files_扩展为当前版本Current里面已存在的文件+增量版本中新增加的文件。
       v->files_[level].reserve(base_files.size() + added_files->size());
+      // 遍历这些新增文件
       for (const auto& added_file : *added_files) {
         // Add all smaller files listed in base_
+        // 通过二分查找，找到第一个不满足cmp规则的文件，即：那些较小的文件
         for (std::vector<FileMetaData*>::const_iterator bpos =
                  std::upper_bound(base_iter, base_end, added_file, cmp);
              base_iter != bpos; ++base_iter) {
+          // 把这些较小的文件追加到待保存版本Version中
           MaybeAddFile(v, level, *base_iter);
         }
-
+        // 把新增版本中的文件追加到待保存版本Version中
         MaybeAddFile(v, level, added_file);
       }
 
       // Add remaining base files
+      // 然后把当前版本CurrentVersion中的文件追加到待保存版本Version中
       for (; base_iter != base_end; ++base_iter) {
         MaybeAddFile(v, level, *base_iter);
       }
@@ -717,6 +737,12 @@ class VersionSet::Builder {
     }
   }
 
+  /**
+   * 看一下file是否是在要删除的列表里面，如果不在，那么添加到version v相应的level的文件列表中。
+   * @param v
+   * @param level
+   * @param f
+   */
   void MaybeAddFile(Version* v, int level, FileMetaData* f) {
     if (levels_[level].deleted_files.count(f->number) > 0) {
       // File is deleted: do nothing
