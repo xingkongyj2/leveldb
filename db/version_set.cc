@@ -467,6 +467,11 @@ bool Version::OverlapInLevel(int level, const Slice* smallest_user_key,
                                smallest_user_key, largest_user_key);
 }
 
+// 找一个合适的level放置新从memtable dump出的sstable
+// 注：不一定总是放到level 0，尽量放到更大的level
+// 如果[small, large]与0层有重叠，则直接返回0
+// 如果与level + 1文件有重叠，或者与level + 2层文件重叠过大，则都不应该放入level + 1，直接返回level
+//返回的level 最大为2
 int Version::PickLevelForMemTableOutput(const Slice& smallest_user_key,
                                         const Slice& largest_user_key) {
   int level = 0;
@@ -669,7 +674,7 @@ class VersionSet::Builder {
       // 为了提高读性能，文件大小除以16K可以得到允许的seek次数，超过这个次数，将触发文件被压缩Compaction。
       f->allowed_seeks = static_cast<int>((f->file_size / 16384U));
       if (f->allowed_seeks < 100) f->allowed_seeks = 100;
-
+      //todo：为什么需要先erase？
       levels_[level].deleted_files.erase(f->number);
       levels_[level].added_files->insert(f);
     }
@@ -703,6 +708,11 @@ class VersionSet::Builder {
       for (const auto& added_file : *added_files) {
         // Add all smaller files listed in base_
         // 通过二分查找，找到第一个不满足cmp规则的文件，即：那些较小的文件
+        // 将Current版本的文件和新增的文件有序的插入到新版本中：
+        //     每次插入新增文件之前，先将Current版本文件中比这个新增文件小的那些文件先
+        //     插入进去，然后再插入新增文件。插入下一个新增文件时，再从剩下的Current版本文件中
+        //     找有没有比新增小的文件，有继续插入。直到新增文件全部插入结束。然后在将剩下的Current版本文件
+        //     插入到新版本中。
         for (std::vector<FileMetaData*>::const_iterator bpos =
                  std::upper_bound(base_iter, base_end, added_file, cmp);
              base_iter != bpos; ++base_iter) {
@@ -714,7 +724,7 @@ class VersionSet::Builder {
       }
 
       // Add remaining base files
-      // 然后把当前版本CurrentVersion中的文件追加到待保存版本Version中
+      // 把当前版本CurrentVersion中的剩下的文件追加到待保存版本Version中
       for (; base_iter != base_end; ++base_iter) {
         MaybeAddFile(v, level, *base_iter);
       }
@@ -739,9 +749,6 @@ class VersionSet::Builder {
 
   /**
    * 看一下file是否是在要删除的列表里面，如果不在，那么添加到version v相应的level的文件列表中。
-   * @param v
-   * @param level
-   * @param f
    */
   void MaybeAddFile(Version* v, int level, FileMetaData* f) {
     if (levels_[level].deleted_files.count(f->number) > 0) {
@@ -793,10 +800,11 @@ void VersionSet::AppendVersion(Version* v) {
   if (current_ != nullptr) {
     current_->Unref();
   }
+  //当前版本current_指向最新加的这个Version
   current_ = v;
   v->Ref();
 
-  // Append to linked list
+  // Append to linked list 新版本Version追加到链表的末尾
   v->prev_ = dummy_versions_.prev_;
   v->next_ = &dummy_versions_;
   v->prev_->next_ = v;

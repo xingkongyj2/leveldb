@@ -149,6 +149,7 @@ class Version {
   VersionSet* vset_;  // VersionSet to which this Version belongs
   Version* next_;     // Next version in linked list
   Version* prev_;     // Previous version in linked list
+  // 版本引用量
   int refs_;          // Number of live refs to this version
 
   // List of files per level
@@ -158,6 +159,7 @@ class Version {
   //
   // levelDB有很多个版本，每个版本都包含了所有层的文件。
   // 新的版本=旧的版本+修改信息。
+  // files_是一个vector数组，即保存了每一层全部的sstable文件
   std::vector<FileMetaData*> files_[config::kNumLevels];
 
   // Next file to compact based on seek stats.
@@ -174,6 +176,10 @@ class Version {
   int compaction_level_;
 };
 
+/**
+ * 用于管理所有的Version，当不断有新版本生成的时候，那么就需要不断地Append到VersionSet里面，
+ * 当旧的Version不再服务读请求之后，这个Version就会从双向链表中移除。
+ */
 class VersionSet {
  public:
   VersionSet(const std::string& dbname, const Options* options,
@@ -306,11 +312,17 @@ class VersionSet {
   Env* const env_;
   const std::string dbname_;
   const Options* const options_;
+  // SSTable文件LRU缓存
   TableCache* const table_cache_;
+  // InternalKey比较器
   const InternalKeyComparator icmp_;
+  //下一个manifest文件编号，在manifest日志里
   uint64_t next_file_number_;
+  //manifest文件编号，每次重启后递增
   uint64_t manifest_file_number_;
+  //sequence号，用于snapshot，每次写入操作都会递增
   uint64_t last_sequence_;
+  //WAL日志文件编号
   uint64_t log_number_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
@@ -318,10 +330,12 @@ class VersionSet {
   WritableFile* descriptor_file_;
   log::Writer* descriptor_log_;
   Version dummy_versions_;  // Head of circular doubly-linked list of versions.
+  // 当前版本current_总是指向双向链表的最后一个元素。
   Version* current_;        // == dummy_versions_.prev_
 
   // Per-level key at which the next compaction at that level should start.
   // Either an empty string, or a valid InternalKey.
+  // 每个Level下一次合并的位置最终是记录在VersionSet中的compact_pointer_。
   std::string compact_pointer_[config::kNumLevels];
 };
 

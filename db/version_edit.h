@@ -15,6 +15,11 @@ namespace leveldb {
 
 class VersionSet;
 
+/**
+ * 文件的元数据信息比较简单，包含文件号、文件大小、最小key、最大key、允许查找的次数、引用计数。
+ * 对于查找key来说，最重要的是最小key和最大key，在一个文件中查找key，
+ * 只要判断这个key是否在这个[smallest, largest]区间，就可以很快判定。
+ */
 struct FileMetaData {
   FileMetaData() : refs(0), allowed_seeks(1 << 30), file_size(0) {}
 
@@ -80,6 +85,7 @@ class VersionEdit {
   // Add the specified file at the specified number.
   // REQUIRES: This version has not been saved (see VersionSet::SaveTo)
   // REQUIRES: "smallest" and "largest" are smallest and largest keys in file
+  // 记录{level, FileMetaData}对到new_files_
   void AddFile(int level, uint64_t file, uint64_t file_size,
                const InternalKey& smallest, const InternalKey& largest) {
     FileMetaData f;
@@ -117,7 +123,9 @@ class VersionEdit {
   bool has_last_sequence_;
 
   std::vector<std::pair<int, InternalKey>> compact_pointers_;
+  // 待删除文件
   DeletedFileSet deleted_files_;
+  //新增文件，例如immutable memtable dump后就会添加到new_files_
   std::vector<std::pair<int, FileMetaData>> new_files_;
 };
 
