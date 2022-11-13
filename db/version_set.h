@@ -159,7 +159,10 @@ class Version {
   //
   // levelDB有很多个版本，每个版本都包含了所有层的文件。
   // 新的版本=旧的版本+修改信息。
-  // files_是一个vector数组，即保存了每一层全部的sstable文件
+  // files_是一个vector数组，即保存了每一层全部的sstable文件。
+  // SSTable的信息，每一项代表相应Level的SSTable信息
+  // 除了Level 0外，每个Level里的文件都是按照最小键的顺序排列的，并且没有重叠
+  // 通过这个数据项，搜索SSTable时，就可以从Level 0开始搜索
   std::vector<FileMetaData*> files_[config::kNumLevels];
 
   // Next file to compact based on seek stats.
@@ -309,26 +312,35 @@ class VersionSet {
 
   void AppendVersion(Version* v);
 
+  // 封装部分操作系统调用，包括文件、线程操作等
   Env* const env_;
+  // 数据库名称，Open时传入
   const std::string dbname_;
+  // 数据库选项，Open时传入
   const Options* const options_;
-  // SSTable文件LRU缓存
+  // SSTable文件LRU缓存，Open时创建
   TableCache* const table_cache_;
-  // InternalKey比较器
+  // 根据User Key生成的Internal Key的Comparator
   const InternalKeyComparator icmp_;
   //下一个manifest文件编号，在manifest日志里
+  // ldb、log和MANIFEST生成新文件时都有一个序号单调递增
   uint64_t next_file_number_;
   //manifest文件编号，每次重启后递增
+  // 当前的MANIFEST的编号
   uint64_t manifest_file_number_;
   //sequence号，用于snapshot，每次写入操作都会递增
+  // 上一个使用的SequenceNumber
   uint64_t last_sequence_;
   //WAL日志文件编号
   uint64_t log_number_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
   // Opened lazily
+  // MANIFEST打开的文件描述符
   WritableFile* descriptor_file_;
+  // MANIFEST实际存储的格式是WAL日志的格式，所以这里用来写入数据
   log::Writer* descriptor_log_;
+  // Version链表的头结点
   Version dummy_versions_;  // Head of circular doubly-linked list of versions.
   // 当前版本current_总是指向双向链表的最后一个元素。
   Version* current_;        // == dummy_versions_.prev_
@@ -336,6 +348,8 @@ class VersionSet {
   // Per-level key at which the next compaction at that level should start.
   // Either an empty string, or a valid InternalKey.
   // 每个Level下一次合并的位置最终是记录在VersionSet中的compact_pointer_。
+  // 这是用来记录Compact的进度，Compact总是从某一Level的最小的键开始到某个键结束，
+  // 下次再从下一个键开始，所以这个就是下一次这个Level从哪个键开始Compact
   std::string compact_pointer_[config::kNumLevels];
 };
 

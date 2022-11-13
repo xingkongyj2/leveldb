@@ -12,12 +12,19 @@ namespace leveldb {
 // Tag numbers for serialized VersionEdit.  These numbers are written to
 // disk and should not be changed.
 enum Tag {
+  // 记录Comparator的名字
   kComparator = 1,
+  // 记录当前时刻的log_number
   kLogNumber = 2,
+  // 记录当前时刻的next_file_number_
   kNextFileNumber = 3,
+  // 记录当前时刻的last_sequence
   kLastSequence = 4,
+  // 记录compact_pointer
   kCompactPointer = 5,
+  // 记录删除的文件信息
   kDeletedFile = 6,
+  // 记录新增的文件信息
   kNewFile = 7,
   // 8 was used for large value refs
   kPrevLogNumber = 9

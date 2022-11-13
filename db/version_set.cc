@@ -696,7 +696,7 @@ class VersionSet::Builder {
     for (int level = 0; level < config::kNumLevels; level++) {
       // Merge the set of added files with the set of pre-existing files.
       // Drop any deleted files.  Store the result in *v.
-      // 每一层级中，当前版本Current里面的已存在文件。
+      // 每一层级中，当前版本Current里面的原有文件。
       const std::vector<FileMetaData*>& base_files = base_->files_[level];
       std::vector<FileMetaData*>::const_iterator base_iter = base_files.begin();
       std::vector<FileMetaData*>::const_iterator base_end = base_files.end();
@@ -845,10 +845,12 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
     // No reason to unlock *mu here since we only hit this path in the
     // first call to LogAndApply (when opening the database).
     assert(descriptor_file_ == nullptr);
+    //形如MANIFEST-xxxxxx的文件名
     new_manifest_file = DescriptorFileName(dbname_, manifest_file_number_);
     s = env_->NewWritableFile(new_manifest_file, &descriptor_file_);
     if (s.ok()) {
       descriptor_log_ = new log::Writer(descriptor_file_);
+      // manifest写入current_的信息
       s = WriteSnapshot(descriptor_log_);
     }
   }

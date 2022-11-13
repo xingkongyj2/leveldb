@@ -40,6 +40,9 @@ namespace leveldb {
 const int kNumNonTableCacheFiles = 10;
 
 // Information kept for every waiting writer
+/**
+ * 记录写操作WriteBatch、是否同步、是否完成、状态，以及用于通信的条件变量port::CondVar
+ */
 struct DBImpl::Writer {
   explicit Writer(port::Mutex* mu)
       : batch(nullptr), sync(false), done(false), cv(mu) {}
@@ -1197,6 +1200,10 @@ Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
   return DB::Delete(options, key);
 }
 
+/**
+ * writers_.push_back(&w); 是class DBImpl : public DB中的成员变量，它是一个双端操作的队列。
+ * 每次的写操作并不是立即执行，而是生成一个Writer对象，然后加入双端操作队列writers_中等待被调度。
+ */
 Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   Writer w(&mutex_);
   w.batch = updates;
@@ -1251,6 +1258,17 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
     versions_->SetLastSequence(last_sequence);
   }
 
+  // writers_是一个任务队列，符合生产者和消费者模型：生产者线程不断向任务队列中添加待处理的任务Writer，
+  // 而LevelDB的消费者是从生产者线程中选择一个线程来处理任务。
+  //
+  // 真正获得调度后，将执行写入任务，下一节再分析，我们继续把writers_队列机制分析完。
+  // 当写操作完成后，将处理完的任务从队列里取出，并置状态为done，然后通知对应的CondVar启动。
+  //
+  // 每个生产者在向Writers_队列中添加任务之后，都会进入一个while循环，然后睡眠。
+  //     只有当这个生产者所加入的任务位于队列的头部，或者该线程加入的任务已经被处理(即writer.done == true)，
+  //     线程才会被唤醒。线程被唤醒后会继续检查循环条件，如果仍不满足调度条件，则还会继续睡眠。
+  // 如果所加入的任务被其他线程处理，本线程则直接退出。
+  // 如果所加入的任务排在了队列writer_的头部，且未处理，本线程将进行写操作处理。
   while (true) {
     Writer* ready = writers_.front();
     writers_.pop_front();
@@ -1322,6 +1340,26 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
+// 1）检查后台线程（Compaction是后台线程）是否有错误bg_error_.ok() ?有错误，则直接返回错误，写操作中止。
+//
+// 2）level-0中的文件数目是否达到软限制——8个，kL0_SlowdownWritesTrigger=8;
+//     此时为了性能必须降低写速率，所以休眠1s再进行；因为level-0中的文件存在key重复问题，
+//     为了读性能，level-0的文件数目必须严格限制。
+//
+// 3）缓存Memtable的使用量是否超过了设置的缓存限制（默认值4MB）：
+//     mem_->ApproximateMemoryUsage()<=options_.write_buffer_size，没有超过，
+//     则可以写入Memtable缓存。
+//
+// 4）如果Memtable缓存超过了，此时Memtable需要切换到immutable文件：imm_!=nullptr，
+//     生成只读的immutable缓存文件，并且向level-0压缩，则等待后台压缩Compaction完成。
+//
+// 5）到达此步，说明immutable已经向level-0压缩完成了，
+//     如果level-0的文件数目达到了最大限制kL0_StopWritesTrigger=12，
+//     则也需要停止写操作，等待level-0的文件数目降下来。
+//
+// 6）到达此步说明：memtable已经没有空间，immutable已经压缩到level-0，
+//     而level-0的文件数目也符合要求，那么当前的这个memtable缓存就可以转换成只读的immutable，
+//     并且开启后台压缩Compaction，然后新生成一个缓存memtable、log日志文件，写操作写入该新memtable缓存。
 Status DBImpl::MakeRoomForWrite(bool force) {
   mutex_.AssertHeld();
   assert(!writers_.empty());
@@ -1466,6 +1504,7 @@ void DBImpl::GetApproximateSizes(const Range* range, int n, uint64_t* sizes) {
 
 // Default implementations of convenience methods that subclasses of DB
 // can call if they wish
+
 Status DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value) {
   WriteBatch batch;
   batch.Put(key, value);

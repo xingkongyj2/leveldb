@@ -111,11 +111,16 @@ class VersionEdit {
 
   typedef std::set<std::pair<int, uint64_t>> DeletedFileSet;
 
+  // 比较器的名称，持久化后，下次打开时需要对比一致
   std::string comparator_;
+  // 日志文件的编号
   uint64_t log_number_;
   uint64_t prev_log_number_;
+  // ldb、log和MANIFEST下一个文件的编号
   uint64_t next_file_number_;
+  // 上一个使用的SequenceNumber
   SequenceNumber last_sequence_;
+  // 记录上面的字段是否存在，存在才会持久化的MANIFEST中
   bool has_comparator_;
   bool has_log_number_;
   bool has_prev_log_number_;
