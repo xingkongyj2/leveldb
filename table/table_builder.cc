@@ -18,6 +18,11 @@
 
 namespace leveldb {
 
+/**
+ * TableBuilder被用来生成sstable
+ *
+ *
+ */
 struct TableBuilder::Rep {
   Rep(const Options& opt, WritableFile* f)
       : options(opt),
@@ -40,6 +45,7 @@ struct TableBuilder::Rep {
   WritableFile* file;
   uint64_t offset;
   Status status;
+  //data block&&index block都采用相同的格式，通过BlockBuilder完成
   BlockBuilder data_block;
   BlockBuilder index_block;
   std::string last_key;
