@@ -32,15 +32,17 @@ Status BlockHandle::DecodeFrom(Slice* input) {
 /**
  * 两个 block handle 相邻存储，最多占用 40 bytes，如果不足的话，padding 补 0，
  * 最后添加两个 magic words，因此总共占用48个字节，记录到了kEncodedLength。
- * @param dst
  */
 void Footer::EncodeTo(std::string* dst) const {
   //string的size计算的是字节个数：英文占一个字节，中文占两个字节。string默认会有一个
+  //按道理传进来就是空字符串，为什么还要original_size？为了保护Footer？
   const size_t original_size = dst->size();
   //将metaindex_handle_和index_handle_序列化为定长数据后，保存到dst
   metaindex_handle_.EncodeTo(dst);
   index_handle_.EncodeTo(dst);
+  //todo:为什么resize?
   dst->resize(2 * BlockHandle::kMaxEncodedLength);  // Padding
+  //magic words占8个字节，值为0xdb4775248b80fb57ull
   PutFixed32(dst, static_cast<uint32_t>(kTableMagicNumber & 0xffffffffu));
   PutFixed32(dst, static_cast<uint32_t>(kTableMagicNumber >> 32));
   assert(dst->size() == original_size + kEncodedLength);

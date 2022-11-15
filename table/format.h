@@ -53,6 +53,9 @@ class BlockHandle {
 
 // Footer encapsulates the fixed information stored at the tail
 // end of every table file.
+/**
+ * 读取时直接 seek 到 f.size() - 48，读取接下来的 48 个 bytes，就可以读到 footer EncodeTo 后的数据了。
+ */
 class Footer {
  public:
   // Encoded length of a Footer.  Note that the serialization of a

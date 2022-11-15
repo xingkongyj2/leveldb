@@ -84,6 +84,7 @@ class LEVELDB_EXPORT TableBuilder {
   void WriteBlock(BlockBuilder* block, BlockHandle* handle);
   void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle);
 
+  //类中类：在类中定义类
   struct Rep;
   Rep* rep_;
 };

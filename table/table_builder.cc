@@ -19,9 +19,7 @@
 namespace leveldb {
 
 /**
- * TableBuilder被用来生成sstable
- *
- *
+ * TableBuilder被用来生成sstable，实现上都封装到了class leveldb::TableBuilder::Rep
  */
 struct TableBuilder::Rep {
   Rep(const Options& opt, WritableFile* f)
@@ -144,6 +142,17 @@ void TableBuilder::Flush() {
   }
 }
 
+/**
+ * 其实就是从 block 取出数据，判断是否需要压缩，将最终结果调用WriteRawBlock。
+ *
+ * 判断是否压缩：
+ *     1.如果设置了kNoCompression，那么一定不压缩
+ *     2.如果设置了kSnappyCompression，那么尝试 snappy 压缩，
+ *       如果压缩后的大小小于原来的 87.5%，那么使用压缩后的值，否则也不压缩
+ *
+ * N个 data blocks, 1个 index block，1个 meta_index block，都使用这种方式写入，
+ * 也就是都采用BlockBuilder构造的数据组织格式，filter block的数据格式由FilterBlockBuilder构造。
+ */
 void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   // File format contains a sequence of blocks where each block has:
   //    block_data: uint8[n]
@@ -180,15 +189,28 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   block->Reset();
 }
 
+/**
+ * 依次写入block_contents、1bytes的compression_type、4bytes的的crc，
+ * 其中后5个字节称为 BlockTrailer，大小定义为：
+ *     static const size_t kBlockTrailerSize = 5; //1-byte type + 32-bit crc。
+ *
+ * 对应格式图里右上角部分，所有的 block，例如 data block/filter block/meta index block/index block，
+ * 都按照|block_contents |compression_type |crc |这种格式组织，区别是 block_contents 格式不同。
+ *
+ * handle为输出变量，记录写入前的文件offset 及 block_contents大小。
+ */
 void TableBuilder::WriteRawBlock(const Slice& block_contents,
                                  CompressionType type, BlockHandle* handle) {
   Rep* r = rep_;
+  //r->offset起始就是当前sstable的大小(byte)
+  //记录当前block的起始偏移位置
   handle->set_offset(r->offset);
   handle->set_size(block_contents.size());
   r->status = r->file->Append(block_contents);
   if (r->status.ok()) {
     char trailer[kBlockTrailerSize];
     trailer[0] = type;
+    //todo:crc原理是什么？
     uint32_t crc = crc32c::Value(block_contents.data(), block_contents.size());
     crc = crc32c::Extend(crc, trailer, 1);  // Extend crc to cover block type
     EncodeFixed32(trailer + 1, crc32c::Mask(crc));
