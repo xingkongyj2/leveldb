@@ -126,12 +126,19 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
   }
 }
 
+/**
+ * Flush主要是将r->data_block更新到文件，记录该 data block的offset及大小，
+ * 等待下次Add or Finish时写入(原因参考Add)。
+ */
 void TableBuilder::Flush() {
   Rep* r = rep_;
   assert(!r->closed);
   if (!ok()) return;
   if (r->data_block.empty()) return;
   assert(!r->pending_index_entry);
+  //写入r->data_block到r->file
+  //更新pending_handle: size为r->data_block的大小，offset为写入data_block前的offset
+  //因此pending_handle可以定位一个完整的data_block
   WriteBlock(&r->data_block, &r->pending_handle);
   if (ok()) {
     r->pending_index_entry = true;
