@@ -1234,9 +1234,11 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
     // into mem_.
     {
       mutex_.Unlock();
+      //WriterBatch写入log文件，包括:sequence,操作count,每次操作的类型(Put/Delete)，key/value及其长度
       status = log_->AddRecord(WriteBatchInternal::Contents(write_batch));
       bool sync_error = false;
       if (status.ok() && options.sync) {
+        //log_底层使用logfile_与文件系统交互，调用Sync完成写入
         status = logfile_->Sync();
         if (!status.ok()) {
           sync_error = true;
