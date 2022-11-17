@@ -95,6 +95,9 @@ Status TableBuilder::ChangeOptions(const Options& options) {
   return Status::OK();
 }
 
+/**
+ * 生成sstable的时候也是一个kv，一个kv的写入。
+ */
 void TableBuilder::Add(const Slice& key, const Slice& value) {
   Rep* r = rep_;
   assert(!r->closed);
@@ -103,10 +106,16 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
     assert(r->options.comparator->Compare(key, Slice(r->last_key)) > 0);
   }
 
+  //刚写入了一个data block后设置为true。
+  //刚写入一个key后，需要向index_block块新增一个entity。
   if (r->pending_index_entry) {
     assert(r->data_block.empty());
+    //todo：为什么？
+    //计算满足>r->last_key && <= key的第一个字符串，存储到r->last_key
+    //例如(abcdefg, abcdxyz) -> *1st_arg = abcdf
     r->options.comparator->FindShortestSeparator(&r->last_key, key);
     std::string handle_encoding;
+    //pending_handle记录的是上个block写入前的offset及大小
     r->pending_handle.EncodeTo(&handle_encoding);
     r->index_block.Add(r->last_key, Slice(handle_encoding));
     r->pending_index_entry = false;
@@ -230,8 +239,12 @@ void TableBuilder::WriteRawBlock(const Slice& block_contents,
 
 Status TableBuilder::status() const { return rep_->status; }
 
+/**
+ * Finish直接决定了完整的数据格式。
+ */
 Status TableBuilder::Finish() {
   Rep* r = rep_;
+  //更新未写入的block
   Flush();
   assert(!r->closed);
   r->closed = true;
@@ -239,13 +252,18 @@ Status TableBuilder::Finish() {
   BlockHandle filter_block_handle, metaindex_block_handle, index_block_handle;
 
   // Write filter block
+  // 一次性写入filter block
   if (ok() && r->filter_block != nullptr) {
     WriteRawBlock(r->filter_block->Finish(), kNoCompression,
                   &filter_block_handle);
   }
 
   // Write metaindex block
+  // 写入index of filter block，这里称为meta_index_block
   if (ok()) {
+    //meta_index_block只写入一条数据
+    //key: filter.$filter_name
+    //value: filter_block的起始位置和大小
     BlockBuilder meta_index_block(&r->options);
     if (r->filter_block != nullptr) {
       // Add mapping from "filter.Name" to location of filter data

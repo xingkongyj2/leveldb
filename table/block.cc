@@ -52,10 +52,16 @@ Block::~Block() {
 //
 // If any errors are detected, returns nullptr.  Otherwise, returns a
 // pointer to the key delta (just past the three decoded values).
+/**
+ * const char* p, const char* limit，起始地址和终止地址。
+ * 按照|shared len|non_shared len|value len|non_shared key|value|解析传入的buffer，
+ * 返回指向non_shared key的指针。
+ */
 static inline const char* DecodeEntry(const char* p, const char* limit,
                                       uint32_t* shared, uint32_t* non_shared,
                                       uint32_t* value_length) {
   if (limit - p < 3) return nullptr;
+  //先假定三个长度都只用1bytes存储，尝试下快速解析
   *shared = reinterpret_cast<const uint8_t*>(p)[0];
   *non_shared = reinterpret_cast<const uint8_t*>(p)[1];
   *value_length = reinterpret_cast<const uint8_t*>(p)[2];
@@ -63,6 +69,7 @@ static inline const char* DecodeEntry(const char* p, const char* limit,
     // Fast path: all three values are encoded in one byte each
     p += 3;
   } else {
+    //逐个解析3个长度
     if ((p = GetVarint32Ptr(p, limit, shared)) == nullptr) return nullptr;
     if ((p = GetVarint32Ptr(p, limit, non_shared)) == nullptr) return nullptr;
     if ((p = GetVarint32Ptr(p, limit, value_length)) == nullptr) return nullptr;
@@ -71,6 +78,7 @@ static inline const char* DecodeEntry(const char* p, const char* limit,
   if (static_cast<uint32_t>(limit - p) < (*non_shared + *value_length)) {
     return nullptr;
   }
+  //p此时指向non-shared key
   return p;
 }
 
@@ -145,6 +153,8 @@ class Block::Iter : public Iterator {
 
     // Scan backwards to a restart point before current_
     const uint32_t original = current_;
+    // prev entry所在的restart_index_一定< original
+    // 不过什么操作会导致while condition为true？
     while (GetRestartPoint(restart_index_) >= original) {
       if (restart_index_ == 0) {
         // No more entries
@@ -155,12 +165,16 @@ class Block::Iter : public Iterator {
       restart_index_--;
     }
 
+    //restart_index_指向current_所在的 or 上一个restart point区间
     SeekToRestartPoint(restart_index_);
     do {
       // Loop until end of current entry hits the start of original entry
     } while (ParseNextKey() && NextEntryOffset() < original);
   }
 
+  /**
+   * Seek应该是Block::Iter最重要的一个接口，用于查找第一个 >= target的 entry。
+   */
   void Seek(const Slice& target) override {
     // Binary search in restart array to find the last restart point
     // with a key < target
@@ -184,10 +198,13 @@ class Block::Iter : public Iterator {
       }
     }
 
+    //查找刚好 < target的restart point.
     while (left < right) {
       uint32_t mid = (left + right + 1) / 2;
       uint32_t region_offset = GetRestartPoint(mid);
       uint32_t shared, non_shared, value_length;
+      //region_offset是一个restart point，因此:
+      //shared = 0, non_shared就是key的长度, key_ptr指向的就是完整的key
       const char* key_ptr =
           DecodeEntry(data_ + region_offset, data_ + restarts_, &shared,
                       &non_shared, &value_length);
@@ -213,6 +230,8 @@ class Block::Iter : public Iterator {
     assert(current_key_compare == 0 || Valid());
     bool skip_seek = left == restart_index_ && current_key_compare < 0;
     if (!skip_seek) {
+      // left指向的key一定<target, left + 1(如果存在)指向的key一定>=target.
+      // Linear search (within restart block) for first key >= target
       SeekToRestartPoint(left);
     }
     // Linear search (within restart block) for first key >= target
@@ -220,6 +239,7 @@ class Block::Iter : public Iterator {
       if (!ParseNextKey()) {
         return;
       }
+      //找到第一个>= target的entry
       if (Compare(key_, target) >= 0) {
         return;
       }
@@ -248,7 +268,9 @@ class Block::Iter : public Iterator {
   }
 
   bool ParseNextKey() {
+    //如果刚调用过SeekToRestartPoint，此时返回第一条entry
     current_ = NextEntryOffset();
+    //解析current_指向的entry
     const char* p = data_ + current_;
     const char* limit = data_ + restarts_;  // Restarts come right after data
     if (p >= limit) {
@@ -265,9 +287,13 @@ class Block::Iter : public Iterator {
       CorruptionError();
       return false;
     } else {
+      //提取key value
       key_.resize(shared);
       key_.append(p, non_shared);
       value_ = Slice(p + non_shared, value_length);
+      //调用NextEntryOffset后，current_可能已经指向了下一个restart point区间的内容
+      //更新restart_index_，这里用if就可以吧？
+      //<是不是应该换成<=?否则只有到了第二条entry才会修正restart_index_
       while (restart_index_ + 1 < num_restarts_ &&
              GetRestartPoint(restart_index_ + 1) < current_) {
         ++restart_index_;
