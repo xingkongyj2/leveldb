@@ -7,3 +7,5 @@ log_writer_test就是单独调用NewWritableFile、writer、AddRecord这3个函�
 
 todo:
     sstable:table_builder_test.cpp
+    读写流程
+    memtable
