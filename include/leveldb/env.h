@@ -48,6 +48,11 @@ class SequentialFile;
 class Slice;
 class WritableFile;
 
+/**
+ * Env：调用某操作系统下的系统函数的功能。
+ * 不同的操作系统环境变量是不同的，linux的时候用PosixEnv类。
+ * PosixEnv(env_posix.cc)继承Env，Env::Default()也定义在env_posix.cc中。
+ */
 class LEVELDB_EXPORT Env {
  public:
   Env();

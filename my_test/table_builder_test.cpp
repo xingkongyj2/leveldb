@@ -9,11 +9,21 @@ int main() {
 
     std::string file_name("table_builder.data");
 
+    //WritableFile是一个抽象类,PosixWritableFile继承它。
+    //所以file指向一个PosixWritableFile类。
+    // WritableFile（PosixWritableFile）的内容：
+    //     文件描述符
+    //     manifest文件名
+    //     文件名
+    //     文件夹名字
     leveldb::WritableFile* file;
+    //Default是Env类的一个静态函数，返回一个指向PosixEnv的Env指针。
+    //所以NewWritableFile指向的是PosixEnv的NewWritableFile（env_posix.cc）。
     leveldb::Status s = leveldb::Env::Default()->NewWritableFile(
             file_name,
             &file);
 
+    // options, file会直接传给Rep，因为TableBuilder中是由Rep来构建sstable的。
     leveldb::TableBuilder table_builder(options, file);
     table_builder.Add("confuse", "value");
     table_builder.Add("contend", "value");
@@ -30,6 +40,9 @@ int main() {
     //文件70 bytes，为block_contents
     //00 为CompressionType
     //a7dd af02为crc
+
+    //上面的过程已经将data_block写入到sstable中了，
+    //调用table_builder.Finish将其他3个block写入到sstable中。
     leveldb::Status status = table_builder.Finish();
     std::cout << status.ToString() << std::endl;
 

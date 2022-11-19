@@ -27,6 +27,7 @@ struct TableBuilder::Rep {
         index_block_options(opt),
         file(f),
         offset(0),
+        //todo：会用&options作为参数构造一个临时对象赋值给data_block？
         data_block(&options),
         index_block(&index_block_options),
         num_entries(0),
@@ -40,15 +41,27 @@ struct TableBuilder::Rep {
 
   Options options;
   Options index_block_options;
+  //文件信息
   WritableFile* file;
+  //所有data_block的偏移量。
   uint64_t offset;
   Status status;
-  //data block&&index block都采用相同的格式，通过BlockBuilder完成
+  //data block，index block都采用相同的格式，通过BlockBuilder完成。
+  //sstable的blobk：
+  //    data_block
+  //    filter_block（单独的格式）
+  //    mata_index_block（最后写入的时候临时生成）
+  //    index_block
+  //    footer（最后写入的时候临时生成）
+  //sstable中的数据块
   BlockBuilder data_block;
+  //sstable中data_block的index_block
   BlockBuilder index_block;
   std::string last_key;
+  //一个kv一个entry，entry的个数。
   int64_t num_entries;
   bool closed;  // Either Finish() or Abandon() has been called.
+  //sstable中的过滤器
   FilterBlockBuilder* filter_block;
 
   // We do not emit the index entry for a block until we have seen the
@@ -97,6 +110,7 @@ Status TableBuilder::ChangeOptions(const Options& options) {
 
 /**
  * 生成sstable的时候也是一个kv，一个kv的写入。
+ *
  */
 void TableBuilder::Add(const Slice& key, const Slice& value) {
   Rep* r = rep_;
@@ -106,21 +120,22 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
     assert(r->options.comparator->Compare(key, Slice(r->last_key)) > 0);
   }
 
-  //刚写入了一个data block后设置为true。
-  //刚写入一个key后，需要向index_block块新增一个entity。
+  //每次向data_block插入kv，当block达到了上限，将这个block写入到文件后，就将pending_index_entry置为true。
+  //同时，代表需要向index_block块新增一个entity。这个entity指向这个块
   if (r->pending_index_entry) {
     assert(r->data_block.empty());
     //todo：为什么？
-    //计算满足>r->last_key && <= key的第一个字符串，存储到r->last_key
-    //例如(abcdefg, abcdxyz) -> *1st_arg = abcdf
+    //计算一个满足：>r->last_key && <= key 的字符串，存储到r->last_key
     r->options.comparator->FindShortestSeparator(&r->last_key, key);
     std::string handle_encoding;
-    //pending_handle记录的是上个block写入前的offset及大小
+    //pending_handle记录的是上个block的offset及大小
     r->pending_handle.EncodeTo(&handle_encoding);
+    //index_block中entity的key为所指向的data_block中最大的key，value为这个data_block的位置和大小。
     r->index_block.Add(r->last_key, Slice(handle_encoding));
     r->pending_index_entry = false;
   }
 
+  //将当前key加入到过滤器块中。
   if (r->filter_block != nullptr) {
     r->filter_block->AddKey(key);
   }
@@ -129,6 +144,7 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
   r->num_entries++;
   r->data_block.Add(key, value);
 
+  //当data_bloc到达了上限的时候，就Flush，将当前data_block写到文件中。
   const size_t estimated_block_size = r->data_block.CurrentSizeEstimate();
   if (estimated_block_size >= r->options.block_size) {
     Flush();
@@ -145,15 +161,18 @@ void TableBuilder::Flush() {
   if (!ok()) return;
   if (r->data_block.empty()) return;
   assert(!r->pending_index_entry);
-  //写入r->data_block到r->file
-  //更新pending_handle: size为r->data_block的大小，offset为写入data_block前的offset
-  //因此pending_handle可以定位一个完整的data_block
+  //写入r->data_block到文件中。
+  //更新pending_handle: 记录一个块在sstable中的位置，
+  //    size为这个data_block的大小，offset为这个data_block的起始地址。
   WriteBlock(&r->data_block, &r->pending_handle);
   if (ok()) {
     r->pending_index_entry = true;
+    //因为写入文件后，文件的数据只是还在内核的缓冲区。
+    //调用底层刷新函数，将数据落到磁盘中。
     r->status = r->file->Flush();
   }
   if (r->filter_block != nullptr) {
+    //将当前块的offset写入过滤器。
     r->filter_block->StartBlock(r->offset);
   }
 }
@@ -176,6 +195,7 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   //    crc: uint32
   assert(ok());
   Rep* r = rep_;
+  //raw包含了这个data_block的全部信息：数据和restart
   Slice raw = block->Finish();
 
   Slice block_contents;
@@ -185,7 +205,7 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
     case kNoCompression:
       block_contents = raw;
       break;
-
+    //压缩数据
     case kSnappyCompression: {
       std::string* compressed = &r->compressed_output;
       if (port::Snappy_Compress(raw.data(), raw.size(), compressed) &&
@@ -213,17 +233,19 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
  * 对应格式图里右上角部分，所有的 block，例如 data block/filter block/meta index block/index block，
  * 都按照|block_contents |compression_type |crc |这种格式组织，区别是 block_contents 格式不同。
  *
- * handle为输出变量，记录写入前的文件offset 及 block_contents大小。
+ * handle为输出变量，size为这个data_block的大小，offset为这个data_block的起始地址。
  */
 void TableBuilder::WriteRawBlock(const Slice& block_contents,
                                  CompressionType type, BlockHandle* handle) {
   Rep* r = rep_;
   //r->offset起始就是当前sstable的大小(byte)
-  //记录当前block的起始偏移位置
+  //handle记录当前block的起始偏移位置和大小
   handle->set_offset(r->offset);
   handle->set_size(block_contents.size());
+  //直接将这个data_block追加到文件末尾。
   r->status = r->file->Append(block_contents);
   if (r->status.ok()) {
+    //追加每个block的尾部压缩信息
     char trailer[kBlockTrailerSize];
     trailer[0] = type;
     //todo:crc原理是什么？
@@ -232,6 +254,7 @@ void TableBuilder::WriteRawBlock(const Slice& block_contents,
     EncodeFixed32(trailer + 1, crc32c::Mask(crc));
     r->status = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (r->status.ok()) {
+      //更新offset
       r->offset += block_contents.size() + kBlockTrailerSize;
     }
   }
@@ -244,7 +267,7 @@ Status TableBuilder::status() const { return rep_->status; }
  */
 Status TableBuilder::Finish() {
   Rep* r = rep_;
-  //更新未写入的block
+  //将最后一个data_block写入到sstable
   Flush();
   assert(!r->closed);
   r->closed = true;
@@ -252,7 +275,7 @@ Status TableBuilder::Finish() {
   BlockHandle filter_block_handle, metaindex_block_handle, index_block_handle;
 
   // Write filter block
-  // 一次性写入filter block
+  // filter block写入sstable
   if (ok() && r->filter_block != nullptr) {
     WriteRawBlock(r->filter_block->Finish(), kNoCompression,
                   &filter_block_handle);

@@ -39,6 +39,7 @@ namespace leveldb {
 
 BlockBuilder::BlockBuilder(const Options* options)
     : options_(options), restarts_(), counter_(0), finished_(false) {
+  //不成立就报错
   assert(options->block_restart_interval >= 1);
   restarts_.push_back(0);  // First restart point is at offset 0
 }
@@ -58,6 +59,10 @@ size_t BlockBuilder::CurrentSizeEstimate() const {
           sizeof(uint32_t));                     // Restart array length
 }
 
+/**
+ * 将这个块的restart写入到buffer_中
+ * @return
+ */
 Slice BlockBuilder::Finish() {
   // Append restart array
   for (size_t i = 0; i < restarts_.size(); i++) {
@@ -68,15 +73,22 @@ Slice BlockBuilder::Finish() {
   return Slice(buffer_);
 }
 
+/**
+ * block的2部分：
+ *     1.entites（数据，保存在buffer_中）：share｜non_share|value_len|non_share_key_content|value
+ *     2.restart数组（数据的索引）
+ */
 void BlockBuilder::Add(const Slice& key, const Slice& value) {
   Slice last_key_piece(last_key_);
   assert(!finished_);
   assert(counter_ <= options_->block_restart_interval);
+  //options_->comparator->Compare(key, last_key_piece) > 0 保证后面的key大于前面的key
   assert(buffer_.empty()  // No values yet?
          || options_->comparator->Compare(key, last_key_piece) > 0);
   size_t shared = 0;
   if (counter_ < options_->block_restart_interval) {
     // See how much sharing to do with previous string
+    //算上一个key与当前key共享的长度
     const size_t min_length = std::min(last_key_piece.size(), key.size());
     while ((shared < min_length) && (last_key_piece[shared] == key[shared])) {
       shared++;

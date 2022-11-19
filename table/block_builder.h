@@ -45,6 +45,7 @@ class BlockBuilder {
   std::string buffer_;              // Destination buffer
   std::vector<uint32_t> restarts_;  // Restart points
   int counter_;                     // Number of entries emitted since restart
+  //表示这个块完成写入到sstable中
   bool finished_;                   // Has Finish() been called?
   std::string last_key_;
 };

@@ -274,6 +274,12 @@ class PosixMmapReadableFile final : public RandomAccessFile {
   const std::string filename_;
 };
 
+/**
+ * 文件描述符
+ * manifest文件名
+ * 文件名
+ * 文件夹名字
+ */
 class PosixWritableFile final : public WritableFile {
  public:
   PosixWritableFile(std::string filename, int fd)
@@ -572,6 +578,7 @@ class PosixEnv : public Env {
 
   Status NewWritableFile(const std::string& filename,
                          WritableFile** result) override {
+    //创建一个文件
     int fd = ::open(filename.c_str(),
                     O_TRUNC | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
     if (fd < 0) {
@@ -579,6 +586,7 @@ class PosixEnv : public Env {
       return PosixError(filename, errno);
     }
 
+    //根据文件描述符和文件名创建一个PosixWritableFile
     *result = new PosixWritableFile(filename, fd);
     return Status::OK();
   }
