@@ -42,14 +42,22 @@ namespace {
 // are kept in a circular doubly linked list ordered by access time.
 struct LRUHandle {
   void* value;
+  //当refs降为0时的清理函数
   void (*deleter)(const Slice&, void* value);
+  //HandleTable hash冲突时指向下一个LRUHandle*
   LRUHandle* next_hash;
+  //LRU链表双向指针
   LRUHandle* next;
+  //LRU链表双向指针
   LRUHandle* prev;
+  // 用于计算LRUCache容量
   size_t charge;  // TODO(opt): Only allow uint32_t?
   size_t key_length;
+  // 是否在LRUCache in_use_ 链表
   bool in_cache;     // Whether entry is in the cache.
+  // 引用计数，用于删除数据
   uint32_t refs;     // References, including cache reference, if present.
+  // key 对应的hash值
   uint32_t hash;     // Hash of key(); used for fast sharding and comparisons
   char key_data[1];  // Beginning of key
 
@@ -67,6 +75,11 @@ struct LRUHandle {
 // table implementations in some of the compiler/runtime combinations
 // we have tested.  E.g., readrandom speeds up by ~5% over the g++
 // 4.4.3's builtin hashtable.
+/**
+ * 桶的个数初始化大小为4，随着元素增加动态修改，使用数组实现。
+ * 同一个 bucket 里，使用链表存储全部的 LRUHandle*，最新插入的数据排在链表尾部。
+ * 核心函数是FindPointer。
+ */
 class HandleTable {
  public:
   HandleTable() : length_(0), elems_(0), list_(nullptr) { Resize(); }
@@ -112,11 +125,20 @@ class HandleTable {
   // Return a pointer to slot that points to a cache entry that
   // matches key/hash.  If there is no such cache entry, return a
   // pointer to the trailing slot in the corresponding linked list.
+  // 如果某个LRUHandle*存在相同的hash&&key值，则返回该LRUHandle*的二级指针，
+  //     即指向上一个LRUHandle*的next_hash的二级指针。
+  // 如果不存在这样的LRUHandle*，则返回指向该bucket的最后一个LRUHandle*的next_hash的二级指针，其值为nullptr。
+  // 返回next_hash地址的作用是可以直接修改该值，因此起到修改链表的作用。
   LRUHandle** FindPointer(const Slice& key, uint32_t hash) {
+    //先查找处于哪个桶
     LRUHandle** ptr = &list_[hash & (length_ - 1)];
+    //next_hash 查找该桶，直到满足以下条件之一：
+    //*ptr == nullptr
+    //某个LRUHandle* hash和key的值都与目标值相同
     while (*ptr != nullptr && ((*ptr)->hash != hash || key != (*ptr)->key())) {
       ptr = &(*ptr)->next_hash;
     }
+    //返回符合条件的LRUHandle**
     return ptr;
   }
 
@@ -148,6 +170,12 @@ class HandleTable {
 };
 
 // A single shard of sharded cache.
+/**
+ * 实现了 LRU 的所有功能。
+ * 包含：
+ *     1.LRUHandle：LRUNode，节点
+ *     2.HandleTable：哈希数据结构，提供了Lookup/Insert/Remove接口，实现数据的查询、更新、删除。
+ */
 class LRUCache {
  public:
   LRUCache();
