@@ -41,24 +41,27 @@ namespace {
 // An entry is a variable length heap-allocated structure.  Entries
 // are kept in a circular doubly linked list ordered by access time.
 struct LRUHandle {
+  // 值
   void* value;
   //当refs降为0时的清理函数
   void (*deleter)(const Slice&, void* value);
-  //HandleTable hash冲突时指向下一个LRUHandle*
+  // 哈希表的链接
   LRUHandle* next_hash;
   //LRU链表双向指针
   LRUHandle* next;
   //LRU链表双向指针
   LRUHandle* prev;
-  // 用于计算LRUCache容量
+  // 缓存项的大小
   size_t charge;  // TODO(opt): Only allow uint32_t?
+  // 键的长度
   size_t key_length;
-  // 是否在LRUCache in_use_ 链表
+  // 当前项是否在缓存中
   bool in_cache;     // Whether entry is in the cache.
   // 引用计数，用于删除数据
   uint32_t refs;     // References, including cache reference, if present.
   // key 对应的hash值
   uint32_t hash;     // Hash of key(); used for fast sharding and comparisons
+  // 键值
   char key_data[1];  // Beginning of key
 
   Slice key() const {
@@ -205,21 +208,27 @@ class LRUCache {
   bool FinishErase(LRUHandle* e) EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
   // Initialized before use.
+  // 缓存容量
   size_t capacity_;
 
   // mutex_ protects the following state.
+  // 包含缓存的锁
   mutable port::Mutex mutex_;
+  // 当前使用了多少容量
   size_t usage_ GUARDED_BY(mutex_);
 
   // Dummy head of LRU list.
   // lru.prev is newest entry, lru.next is oldest entry.
   // Entries have refs==1 and in_cache==true.
+  // 缓存项链表
   LRUHandle lru_ GUARDED_BY(mutex_);
 
   // Dummy head of in-use list.
   // Entries are in use by clients, and have refs >= 2 and in_cache==true.
+  // 当前正在被使用的缓存项链表
   LRUHandle in_use_ GUARDED_BY(mutex_);
 
+  // 缓存的哈希表，快速查找缓存项
   HandleTable table_ GUARDED_BY(mutex_);
 };
 
@@ -244,8 +253,11 @@ LRUCache::~LRUCache() {
 }
 
 void LRUCache::Ref(LRUHandle* e) {
+  // 如果当前在lru_里，移动到in_use_里
   if (e->refs == 1 && e->in_cache) {  // If on lru_ list, move to in_use_ list.
+    // 先从链表中移除
     LRU_Remove(e);
+    // 插入到in_use_
     LRU_Append(&in_use_, e);
   }
   e->refs++;
@@ -254,12 +266,14 @@ void LRUCache::Ref(LRUHandle* e) {
 void LRUCache::Unref(LRUHandle* e) {
   assert(e->refs > 0);
   e->refs--;
+  // 销毁缓存项
   if (e->refs == 0) {  // Deallocate.
     assert(!e->in_cache);
     (*e->deleter)(e->key(), e->value);
     free(e);
   } else if (e->in_cache && e->refs == 1) {
     // No longer in use; move to lru_ list.
+    // 重新移动到lru_里
     LRU_Remove(e);
     LRU_Append(&lru_, e);
   }
@@ -279,6 +293,7 @@ void LRUCache::LRU_Append(LRUHandle* list, LRUHandle* e) {
 }
 
 Cache::Handle* LRUCache::Lookup(const Slice& key, uint32_t hash) {
+  // 加锁操作，使用分段缓存减少锁等待
   MutexLock l(&mutex_);
   LRUHandle* e = table_.Lookup(key, hash);
   if (e != nullptr) {
@@ -364,6 +379,9 @@ void LRUCache::Prune() {
 static const int kNumShardBits = 4;
 static const int kNumShards = 1 << kNumShardBits;
 
+/**
+ * 定义多个LRUCache，实现分段式锁。
+ */
 class ShardedLRUCache : public Cache {
  private:
   LRUCache shard_[kNumShards];

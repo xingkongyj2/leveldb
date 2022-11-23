@@ -43,8 +43,11 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
   Status s;
   char buf[sizeof(file_number)];
   EncodeFixed64(buf, file_number);
+  // key为file_number
   Slice key(buf, sizeof(buf));
+  // cache_是LRUCache的实例
   *handle = cache_->Lookup(key);
+  // 如果缓存没命中，则打开新的Table
   if (*handle == nullptr) {
     std::string fname = TableFileName(dbname_, file_number);
     RandomAccessFile* file = nullptr;
@@ -69,6 +72,7 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
       TableAndFile* tf = new TableAndFile;
       tf->file = file;
       tf->table = table;
+      // 插入一个缓存项，大小为1
       *handle = cache_->Insert(key, tf, 1, &DeleteEntry);
     }
   }

@@ -157,6 +157,7 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
   Block* block = nullptr;
   Cache::Handle* cache_handle = nullptr;
 
+  // 保存索引项
   BlockHandle handle;
   Slice input = index_value;
   Status s = handle.DecodeFrom(&input);
@@ -165,25 +166,32 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
 
   if (s.ok()) {
     BlockContents contents;
+    // 使用缓存，则先读缓存
     if (block_cache != nullptr) {
+      // 构造缓存键，使用cache_id和offset
       char cache_key_buffer[16];
       EncodeFixed64(cache_key_buffer, table->rep_->cache_id);
       EncodeFixed64(cache_key_buffer + 8, handle.offset());
       Slice key(cache_key_buffer, sizeof(cache_key_buffer));
+      // 查找缓存是否存在
       cache_handle = block_cache->Lookup(key);
+      // 存在则直接获取到block
       if (cache_handle != nullptr) {
         block = reinterpret_cast<Block*>(block_cache->Value(cache_handle));
       } else {
+        // 否则从文件里读取Data Block
         s = ReadBlock(table->rep_->file, options, handle, &contents);
         if (s.ok()) {
           block = new Block(contents);
           if (contents.cachable && options.fill_cache) {
+            // 插入缓存
             cache_handle = block_cache->Insert(key, block, block->size(),
                                                &DeleteCachedBlock);
           }
         }
       }
     } else {
+      // 不使用缓存，直接读取数据
       s = ReadBlock(table->rep_->file, options, handle, &contents);
       if (s.ok()) {
         block = new Block(contents);
