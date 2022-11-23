@@ -125,8 +125,8 @@ class HandleTable {
   // Return a pointer to slot that points to a cache entry that
   // matches key/hash.  If there is no such cache entry, return a
   // pointer to the trailing slot in the corresponding linked list.
-  // 如果某个LRUHandle*存在相同的hash&&key值，则返回该LRUHandle*的二级指针，
-  //     即指向上一个LRUHandle*的next_hash的二级指针。
+  // 如果某个LRUHandle*存在相同的hash&&key值，则返回 指向该LRUHandle指针的地址，
+  //     即：该LRUHandle前一个LRUHandle的next_hash的地址。
   // 如果不存在这样的LRUHandle*，则返回指向该bucket的最后一个LRUHandle*的next_hash的二级指针，其值为nullptr。
   // 返回next_hash地址的作用是可以直接修改该值，因此起到修改链表的作用。
   LRUHandle** FindPointer(const Slice& key, uint32_t hash) {
