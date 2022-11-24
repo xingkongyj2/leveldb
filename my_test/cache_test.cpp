@@ -32,6 +32,7 @@ int main() {
     std::vector<leveldb::Cache::Handle*> handles;
 
     for (size_t i = 0; i < orignal_keys.size(); ++i) {
+        // cache->Insert = ShardedLRUCache->Insert
          handles.push_back(cache->Insert(
                 orignal_keys[i],
                 static_cast<void*>(&orignal_values[i]),
