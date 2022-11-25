@@ -13,7 +13,9 @@ void scan_by_table_iterator() {
     // std::string file_path = "./table_builder.data";
 
     //New RandomAccessFile
+    // 打开sstable文件
     leveldb::RandomAccessFile* file = nullptr;
+    // PosixEnv类中的NewRandomAccessFile
     leveldb::Status status = leveldb::Env::Default()->NewRandomAccessFile(
             file_path,
             &file);
