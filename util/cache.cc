@@ -315,6 +315,10 @@ Cache::Handle* LRUCache::Insert(const Slice& key, uint32_t hash, void* value,
                                                 void* value)) {
   MutexLock l(&mutex_);
 
+  // 申请动态大小的LRUHandle内存，初始化该结构体
+  // refs = 2:
+  // 1. 返回的Cache::Handle*
+  // 2. in_use_链表里记录
   LRUHandle* e =
       reinterpret_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key.size()));
   e->value = value;
@@ -329,8 +333,10 @@ Cache::Handle* LRUCache::Insert(const Slice& key, uint32_t hash, void* value,
   if (capacity_ > 0) {
     e->refs++;  // for the cache's reference.
     e->in_cache = true;
+    //添加到in_use_队列
     LRU_Append(&in_use_, e);
     usage_ += charge;
+    // 如果是更新的，删除原有节点
     FinishErase(table_.Insert(e));
   } else {  // don't cache. (capacity_==0 is supported and turns off caching.)
     // next is read by key() in an assert, so it must be initialized
@@ -409,6 +415,7 @@ class ShardedLRUCache : public Cache {
   Handle* Insert(const Slice& key, void* value, size_t charge,
                  void (*deleter)(const Slice& key, void* value)) override {
     const uint32_t hash = HashSlice(key);
+    //取hash的高4个字节，确定进入哪一个LRUCache
     return shard_[Shard(hash)].Insert(key, hash, value, charge, deleter);
   }
   Handle* Lookup(const Slice& key) override {

@@ -82,17 +82,26 @@ static inline const char* DecodeEntry(const char* p, const char* limit,
   return p;
 }
 
+/**
+ * 所谓的迭代器其实就是保存了block全部信息。
+ */
 class Block::Iter : public Iterator {
  private:
+  //记录整个块的信息。
   const Comparator* const comparator_;
   const char* const data_;       // underlying block contents
   uint32_t const restarts_;      // Offset of restart array (list of fixed32)
   uint32_t const num_restarts_;  // Number of uint32_t entries in restart array
 
   // current_ is offset in data_ of current entry.  >= restarts_ if !Valid
+  // 遍历时，记录当前entity
+  // 当前entity的offset
   uint32_t current_;
+  // 当前entity的数组索引
   uint32_t restart_index_;  // Index of restart block in which current_ falls
+  // 当前entity的key
   std::string key_;
+  // 当前entity的value
   Slice value_;
   Status status_;
 
@@ -307,6 +316,7 @@ Iterator* Block::NewIterator(const Comparator* comparator) {
   if (size_ < sizeof(uint32_t)) {
     return NewErrorIterator(Status::Corruption("bad block contents"));
   }
+  //读取block中最后的32个字节，获取restart_offset数组的个数。
   const uint32_t num_restarts = NumRestarts();
   if (num_restarts == 0) {
     return NewEmptyIterator();

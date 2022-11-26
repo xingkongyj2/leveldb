@@ -35,6 +35,9 @@ struct Table::Rep {
   Block* index_block;
 };
 
+/**
+ * 解析sstable文件。
+ */
 Status Table::Open(const Options& options, RandomAccessFile* file,
                    uint64_t size, Table** table) {
   *table = nullptr;
@@ -44,35 +47,44 @@ Status Table::Open(const Options& options, RandomAccessFile* file,
 
   char footer_space[Footer::kEncodedLength];
   Slice footer_input;
+  // Read有两种方式：1.用fd从瓷盘读取，保存在footer_space中。2.从内存映射中读取。footer_input保存footer的二进制数据。
   Status s = file->Read(size - Footer::kEncodedLength, Footer::kEncodedLength,
                         &footer_input, footer_space);
   if (!s.ok()) return s;
 
+  //将footer的二进制数据解析出来后放入Footer类中。
   Footer footer;
   s = footer.DecodeFrom(&footer_input);
   if (!s.ok()) return s;
 
   // Read the index block
+  //  BlockContents知识保存了一个block的二进制数据
   BlockContents index_block_contents;
   ReadOptions opt;
   if (options.paranoid_checks) {
     opt.verify_checksums = true;
   }
+  //传入文件，以及block的起始和偏移地址，就能取出这个index block了
   s = ReadBlock(file, opt, footer.index_handle(), &index_block_contents);
 
   if (s.ok()) {
     // We've successfully read the footer and the index block: we're
     // ready to serve requests.
+    // 将block的二进制数据解析出来，给对应的变量赋值。
     Block* index_block = new Block(index_block_contents);
+    // 将sstable解析到Rep
     Rep* rep = new Table::Rep;
     rep->options = options;
     rep->file = file;
     rep->metaindex_handle = footer.metaindex_handle();
     rep->index_block = index_block;
+    //读取sstable的时候回分配一个唯一的cache_id
     rep->cache_id = (options.block_cache ? options.block_cache->NewId() : 0);
     rep->filter_data = nullptr;
     rep->filter = nullptr;
+    //根据rep构建table
     *table = new Table(rep);
+    //读取 filter block，记录到rep_->filter
     (*table)->ReadMeta(footer);
   }
 
@@ -90,11 +102,13 @@ void Table::ReadMeta(const Footer& footer) {
   if (rep_->options.paranoid_checks) {
     opt.verify_checksums = true;
   }
+  //读取mate_index_block
   BlockContents contents;
   if (!ReadBlock(rep_->file, opt, footer.metaindex_handle(), &contents).ok()) {
     // Do not propagate errors since meta info is not needed for operation
     return;
   }
+  //解析出mate_index_block
   Block* meta = new Block(contents);
 
   Iterator* iter = meta->NewIterator(BytewiseComparator());
@@ -213,10 +227,18 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
   return iter;
 }
 
+
+/**
+ * new TwoLevelIterator(index_iter, block_function, arg, options);
+ * 第一个参数传入 index block 的 iterator，用于第一层查找。
+ * 查找到的 value 会传递给第二个参数(函数指针)，该函数支持解析 value 的 data block，
+ * 第三、四个参数都在函数调用时使用。
+ */
 Iterator* Table::NewIterator(const ReadOptions& options) const {
   return NewTwoLevelIterator(
+      //传入index_block的iterator
       rep_->index_block->NewIterator(rep_->options.comparator),
-      &Table::BlockReader, const_cast<Table*>(this), options);
+      &Table::BlockReader, const_cast<Table*>(this),  options);
 }
 
 Status Table::InternalGet(const ReadOptions& options, const Slice& k, void* arg,

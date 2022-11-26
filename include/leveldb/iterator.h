@@ -21,6 +21,9 @@
 
 namespace leveldb {
 
+/**
+ * 所谓的迭代器其实就是保存了block或者sstable的全部信息。
+ */
 class LEVELDB_EXPORT Iterator {
  public:
   Iterator();

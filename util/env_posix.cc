@@ -173,6 +173,9 @@ class PosixSequentialFile final : public SequentialFile {
 // Instances of this class are thread-safe, as required by the RandomAccessFile
 // API. Instances are immutable and Read() only calls thread-safe library
 // functions.
+/**
+ * 直接根据文件fd读取。
+ */
 class PosixRandomAccessFile final : public RandomAccessFile {
  public:
   // The new instance takes ownership of |fd|. |fd_limiter| must outlive this
@@ -235,6 +238,9 @@ class PosixRandomAccessFile final : public RandomAccessFile {
 // Instances of this class are thread-safe, as required by the RandomAccessFile
 // API. Instances are immutable and Read() only calls thread-safe library
 // functions.
+/**
+ * 将sstable数据读入内存后再读取。
+ */
 class PosixMmapReadableFile final : public RandomAccessFile {
  public:
   // mmap_base[0, length-1] points to the memory-mapped contents of the file. It
