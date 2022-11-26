@@ -4,8 +4,3 @@ log_writer_test就是单独调用NewWritableFile、writer、AddRecord这3个函�
 至于include文件夹是暴露给外部使用者的接口。
 
 简而言之：只有有头文件和cpp，什么函数都能调用。所谓的打包就是将程序的定义，所以只要有引入对应头文件的位置，就能调用对应的函数了。
-
-todo:
-    sstable:table_test.cc
-    读写流程
-    memtable
