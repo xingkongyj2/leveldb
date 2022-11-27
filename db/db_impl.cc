@@ -121,8 +121,14 @@ Options SanitizeOptions(const std::string& dbname,
   return result;
 }
 
+/**
+ * 文件总的数目大小在初始化时通过TableCacheSize(options_)指定，
+ * 因此就可以起到控制整个进程打开的文件句柄数目的作用。
+ * 默认大小为1000 - 10。
+ */
 static int TableCacheSize(const Options& sanitized_options) {
   // Reserve ten files or so for other uses and give the rest to TableCache.
+  // max_open_files 默认1000
   return sanitized_options.max_open_files - kNumNonTableCacheFiles;
 }
 
@@ -510,6 +516,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
   FileMetaData meta;
+  //首先顺序生成 sstable 的编号，用于文件名
   meta.number = versions_->NewFileNumber();
   pending_outputs_.insert(meta.number);
   Iterator* iter = mem->NewIterator();
@@ -518,6 +525,10 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
 
   Status s;
   {
+    //iter用过遍历 MemTable，通过BuildTable将数据写入到 sstable，
+    //    该函数实际上就是调用了TableBuilder。
+    //更新memtable中全部数据到xxx.ldb文件。
+    //meta记录key range, file_size等sst信息。
     mutex_.Unlock();
     s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta);
     mutex_.Lock();
@@ -531,6 +542,12 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
 
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.
+  //接下来通过meta选取合适的 level，注意虽然函数名字是WriteLevel0Table，
+  // 但是新生成 sstable，并不一定总是会放到 level 0，
+  // 例如如果 key range 与 level 1层的所有文件都没有 overlap，
+  // 那就会直接放到 level 1。PickLevelForMemTableOutput是Version的接口，
+  // 后续笔记专门介绍 leveldb 的版本，这里的作用就是返回一个该 sstable
+  // 即将放入的 level，加上meta里的文件信息，统一记录到edit。
   int level = 0;
   if (s.ok() && meta.file_size > 0) {
     const Slice min_user_key = meta.smallest.user_key();
@@ -549,6 +566,14 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   return s;
 }
 
+/**
+ * CompactMemTable主要流程分为三部分：
+ *     1.WriteLevel0Table(imm_, &edit, base)：imm_落盘成为新的 sst 文件，
+ *         文件信息记录到 edit.
+ *     2.versions_->LogAndApply(&edit, &mutex_)：将本次文件更新信息versions_，
+ *         当前的文件（包含新的 sst 文件）作为数据库的一个最新状态，后续读写都会基于该状态.
+ *     3.DeleteObsoleeteFiles：删除一些无用文件.
+ */
 void DBImpl::CompactMemTable() {
   mutex_.AssertHeld();
   assert(imm_ != nullptr);
@@ -565,12 +590,15 @@ void DBImpl::CompactMemTable() {
   }
 
   // Replace immutable memtable with the generated Table
+  //将edit应用到版本信息里记录
   if (s.ok()) {
     edit.SetPrevLogNumber(0);
     edit.SetLogNumber(logfile_number_);  // Earlier logs no longer needed
+    //应用edit
     s = versions_->LogAndApply(&edit, &mutex_);
   }
 
+  //新的版本信息生成后，会有一些不再需要的文件，通过DeleteObsoleteFiles选出并且删除。
   if (s.ok()) {
     // Commit to the new state
     imm_->Unref();
@@ -702,9 +730,14 @@ void DBImpl::BackgroundCall() {
   background_work_finished_signal_.SignalAll();
 }
 
+/**
+ * 整个压缩过程的入口函数。
+ * minor compaction 是高优于 major 的
+ */
 void DBImpl::BackgroundCompaction() {
   mutex_.AssertHeld();
 
+  //如果immutable memtable存在，则本次先compact，即Minor Compaction
   if (imm_ != nullptr) {
     CompactMemTable();
     return;

@@ -164,6 +164,9 @@ static void ReleaseBlock(void* arg, void* h) {
 
 // Convert an index iterator value (i.e., an encoded BlockHandle)
 // into an iterator over the contents of the corresponding block.
+/**
+ * block构建器，构建的时候就可以选择是否插入cache。
+ */
 Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
                              const Slice& index_value) {
   Table* table = reinterpret_cast<Table*>(arg);
@@ -183,6 +186,10 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
     // 使用缓存，则先读缓存
     if (block_cache != nullptr) {
       // 构造缓存键，使用cache_id和offset
+      // cache key = (cache_id + offset)
+      // cache_id不同Table间保证唯一
+      // 同一Table的不同data block有唯一的offset
+      // 因此可以作为cache key.
       char cache_key_buffer[16];
       EncodeFixed64(cache_key_buffer, table->rep_->cache_id);
       EncodeFixed64(cache_key_buffer + 8, handle.offset());
@@ -194,6 +201,7 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
         block = reinterpret_cast<Block*>(block_cache->Value(cache_handle));
       } else {
         // 否则从文件里读取Data Block
+        //缓存 value 则是整个 Block 对象
         s = ReadBlock(table->rep_->file, options, handle, &contents);
         if (s.ok()) {
           block = new Block(contents);

@@ -175,6 +175,11 @@ class DBImpl : public DB {
   std::atomic<bool> shutting_down_;
   port::CondVar background_work_finished_signal_ GUARDED_BY(mutex_);
   MemTable* mem_;
+  /**
+   * imm_全称是 immutable memtable，只读状态，leveldb 会有一个后台线程负责将imm_持久化到磁盘，
+   *     成为 level 0 的 sst 文件。
+   * 整个过程完成后，就可以重新设置imm_ = nullptr;，当mem_大小再次达到阈值，循环这个过程。
+   */
   MemTable* imm_ GUARDED_BY(mutex_);  // Memtable being compacted
   std::atomic<bool> has_imm_;         // So bg thread can detect non-null imm_
   WritableFile* logfile_;

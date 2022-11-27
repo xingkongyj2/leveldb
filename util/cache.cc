@@ -42,10 +42,13 @@ namespace {
 // An entry is a variable length heap-allocated structure.  Entries
 // are kept in a circular doubly linked list ordered by access time.
 /**
- * 一个LRUHandle保存一个entry。
+ * 查找entry的过程不变，确定好了entry是属于那个block之后，读取block的时候缓存才起作用。
+ * 一个LRUHandle保存一个block或者Table。
+ * 1.Block：key(cache_id+offset): value(整个Block对象)
+ * 2.Table：key(file_number):TableAndFile(结构体)
  */
 struct LRUHandle {
-  // 值
+  // 值：是整个 Block 对象
   void* value;
   //当refs降为0时的清理函数
   void (*deleter)(const Slice&, void* value);
@@ -55,7 +58,7 @@ struct LRUHandle {
   LRUHandle* next;
   //LRU链表双向指针（用在维护lru_或者in_use_双链表中）
   LRUHandle* prev;
-  // 缓存项的大小：这个节点所占的大小（capacity_总大小为15）。
+  // 缓存项的大小：这个缓存项所占的大小(cache块默认是1)（capacity_总大小为15）。
   size_t charge;  // TODO(opt): Only allow uint32_t?
   // 键的长度
   size_t key_length;
@@ -164,7 +167,9 @@ class HandleTable {
     return ptr;
   }
 
-  //todo
+  /**
+   * hashtable扩容。
+   */
   void Resize() {
     uint32_t new_length = 4;
     while (new_length < elems_) {

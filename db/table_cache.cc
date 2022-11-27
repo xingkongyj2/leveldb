@@ -16,6 +16,9 @@ struct TableAndFile {
   Table* table;
 };
 
+/**
+ * 当数据过期淘汰时，关闭文件句柄，清理内存。
+*/
 static void DeleteEntry(const Slice& key, void* value) {
   TableAndFile* tf = reinterpret_cast<TableAndFile*>(value);
   delete tf->table;
@@ -41,6 +44,7 @@ TableCache::~TableCache() { delete cache_; }
 Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
                              Cache::Handle** handle) {
   Status s;
+  //缓存的 key 就是文件的 file_number
   char buf[sizeof(file_number)];
   EncodeFixed64(buf, file_number);
   // key为file_number
@@ -69,6 +73,7 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
       // We do not cache error results so that if the error is transient,
       // or somebody repairs the file, we recover automatically.
     } else {
+      //value 就是文件和Table*
       TableAndFile* tf = new TableAndFile;
       tf->file = file;
       tf->table = table;
@@ -115,6 +120,10 @@ Status TableCache::Get(const ReadOptions& options, uint64_t file_number,
   return s;
 }
 
+/**
+ * 注意：TableCache有手动逐出Evict的操作，对应删除文件后删除对应缓存的场景。
+ * @param file_number
+ */
 void TableCache::Evict(uint64_t file_number) {
   char buf[sizeof(file_number)];
   EncodeFixed64(buf, file_number);
