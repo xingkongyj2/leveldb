@@ -16,7 +16,12 @@ namespace leveldb {
 class VersionSet;
 
 /**
- * 文件的元数据信息比较简单，包含文件号、文件大小、最小key、最大key、允许查找的次数、引用计数。
+ * sstable的元数据信息比较简单：
+ *     1.文件号
+ *     2.文件大小
+ *     3.最小key、最大key
+ *     4.允许查找的次数
+ *     5.引用计数
  * 对于查找key来说，最重要的是最小key和最大key，在一个文件中查找key，
  * 只要判断这个key是否在这个[smallest, largest]区间，就可以很快判定。
  */

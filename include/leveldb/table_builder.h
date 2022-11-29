@@ -25,6 +25,9 @@ class BlockBuilder;
 class BlockHandle;
 class WritableFile;
 
+/**
+ * TableBuilder被用来生成sstable，实现上都封装到了class leveldb::TableBuilder::Rep。
+ */
 class LEVELDB_EXPORT TableBuilder {
  public:
   // Create a builder that will store the contents of the table it is

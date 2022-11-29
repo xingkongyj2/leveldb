@@ -110,7 +110,6 @@ Status TableBuilder::ChangeOptions(const Options& options) {
 
 /**
  * 生成sstable的时候也是一个kv，一个kv的写入。
- *
  */
 void TableBuilder::Add(const Slice& key, const Slice& value) {
   Rep* r = rep_;
@@ -263,7 +262,8 @@ void TableBuilder::WriteRawBlock(const Slice& block_contents,
 Status TableBuilder::status() const { return rep_->status; }
 
 /**
- * Finish直接决定了完整的数据格式。
+ * data_block构建完成之后。使用Finish写入：filter block、metaindex block、index block
+ * 、footer等其它四个字段。
  */
 Status TableBuilder::Finish() {
   Rep* r = rep_;

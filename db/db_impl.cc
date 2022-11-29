@@ -511,6 +511,9 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   return status;
 }
 
+/**
+ * 将memtable变成sstable。
+ */
 Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
                                 Version* base) {
   mutex_.AssertHeld();
@@ -519,6 +522,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   //首先顺序生成 sstable 的编号，用于文件名
   meta.number = versions_->NewFileNumber();
   pending_outputs_.insert(meta.number);
+  //跳表的迭代器
   Iterator* iter = mem->NewIterator();
   Log(options_.info_log, "Level-0 table #%llu: started",
       (unsigned long long)meta.number);
@@ -542,7 +546,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
 
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.
-  //接下来通过meta选取合适的 level，注意虽然函数名字是WriteLevel0Table，
+  // 接下来通过meta选取合适的 level，注意虽然函数名字是WriteLevel0Table，
   // 但是新生成 sstable，并不一定总是会放到 level 0，
   // 例如如果 key range 与 level 1层的所有文件都没有 overlap，
   // 那就会直接放到 level 1。PickLevelForMemTableOutput是Version的接口，
@@ -553,8 +557,10 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
     const Slice min_user_key = meta.smallest.user_key();
     const Slice max_user_key = meta.largest.user_key();
     if (base != nullptr) {
+      //为新生成sstable选择合适的level(不一定总是0)
       level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
     }
+    // edit记录变化：新增文件。
     edit->AddFile(level, meta.number, meta.file_size, meta.smallest,
                   meta.largest);
   }
@@ -579,6 +585,7 @@ void DBImpl::CompactMemTable() {
   assert(imm_ != nullptr);
 
   // Save the contents of the memtable as a new Table
+  //第一部分
   VersionEdit edit;
   Version* base = versions_->current();
   base->Ref();
@@ -590,6 +597,7 @@ void DBImpl::CompactMemTable() {
   }
 
   // Replace immutable memtable with the generated Table
+  //第二部分
   //将edit应用到版本信息里记录
   if (s.ok()) {
     edit.SetPrevLogNumber(0);
@@ -598,7 +606,8 @@ void DBImpl::CompactMemTable() {
     s = versions_->LogAndApply(&edit, &mutex_);
   }
 
-  //新的版本信息生成后，会有一些不再需要的文件，通过DeleteObsoleteFiles选出并且删除。
+  //第三部分
+  //新的版本信息生成后，会有一些不再需要的文件，通过RemoveObsoleteFiles选出并且删除。
   if (s.ok()) {
     // Commit to the new state
     imm_->Unref();
@@ -743,6 +752,7 @@ void DBImpl::BackgroundCompaction() {
     return;
   }
 
+  // major compaction
   Compaction* c;
   bool is_manual = (manual_compaction_ != nullptr);
   InternalKey manual_end;
@@ -1446,8 +1456,10 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       logfile_ = lfile;
       logfile_number_ = new_log_number;
       log_ = new log::Writer(lfile);
+      //mem_大小超过4M，因此转化为imm_
       imm_ = mem_;
       has_imm_.store(true, std::memory_order_release);
+      //重新new一个新的mem_供更新
       mem_ = new MemTable(internal_comparator_);
       mem_->Ref();
       force = false;  // Do not force another compaction if have room
