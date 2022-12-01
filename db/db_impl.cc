@@ -607,7 +607,7 @@ void DBImpl::CompactMemTable() {
   }
 
   //第三部分
-  //新的版本信息生成后，会有一些不再需要的文件，通过RemoveObsoleteFiles选出并且删除。
+  //新的版本信息生成后，做一个文件的清理，通过RemoveObsoleteFiles选出并且删除。
   if (s.ok()) {
     // Commit to the new state
     imm_->Unref();
