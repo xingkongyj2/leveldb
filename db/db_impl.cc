@@ -613,6 +613,7 @@ void DBImpl::CompactMemTable() {
     imm_->Unref();
     imm_ = nullptr;
     has_imm_.store(false, std::memory_order_release);
+    //todo
     RemoveObsoleteFiles();
   } else {
     RecordBackgroundError(s);

@@ -813,6 +813,11 @@ void VersionSet::AppendVersion(Version* v) {
 
 /**
  * 形成一个新的版本。
+ * 主要做了几件事：
+ *     1.将edit应用于current_生成一个新的Version
+ *     2.计算新Version下，下次 major compact 的文件
+ *     3.更新一些元信息管理文件
+ *     4.将新Version添加到双向链表，current_ = 新Version
  */
 Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
   if (edit->has_log_number_) {
@@ -838,6 +843,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
     //把结果保存到新版本v：current_ + edit = v
     builder.SaveTo(v);
   }
+  //计算下次 major compact 时要处理的层
   Finalize(v);
 
   // Initialize new descriptor log file if necessary by creating
