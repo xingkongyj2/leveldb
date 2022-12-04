@@ -530,7 +530,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   Status s;
   {
     //iter用过遍历 MemTable，通过BuildTable将数据写入到 sstable，
-    //    该函数实际上就是调用了TableBuilder。
+    //该函数实际上就是调用了TableBuilder。
     //更新memtable中全部数据到xxx.ldb文件。
     //meta记录key range, file_size等sst信息。
     mutex_.Unlock();

@@ -402,6 +402,7 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k,
 bool Version::UpdateStats(const GetStats& stats) {
   FileMetaData* f = stats.seek_file;
   if (f != nullptr) {
+    //当查找文件而没有查找到时，allowed_seeks--，降为0时该文件标记到file_to_compact_
     f->allowed_seeks--;
     if (f->allowed_seeks <= 0 && file_to_compact_ == nullptr) {
       file_to_compact_ = f;
@@ -672,6 +673,15 @@ class VersionSet::Builder {
       // conservative and allow approximately one seek for every 16KB
       // of data before triggering a compaction.
       // 为了提高读性能，文件大小除以16K可以得到允许的seek次数，超过这个次数，将触发文件被压缩Compaction。
+      //
+      // 1. 1次seek花费10ms
+      // 2. 1M读写花费10ms
+      // 3. 1M文件的compact需要25M IO(读写10-12MB的下一层文件)，为什么10-12M?经验值?
+      // 因此1M的compact时间 = 25次seek时间 = 250ms
+      // 也就是40K的compact时间 = 1次seek时间，保守点取16KB，即t = 16K的compact时间 = 1次seek时间
+      // compact这个文件的时间: file_size / 16K
+      // 如果文件seek很多次但是没有找到key，时间和已经比compact时间要大，就应该compact了
+      // 这个次数记录到f->allowed_seeks
       f->allowed_seeks = static_cast<int>((f->file_size / 16384U));
       if (f->allowed_seeks < 100) f->allowed_seeks = 100;
       //todo：为什么需要先erase？
@@ -1079,11 +1089,27 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
   }
 }
 
+/**
+ * 当产生新版本时，遍历所有的层，比较该层文件总大小与基准大小，得到一个最应当 compact 的层。
+ * 计算compact的level和score，更新到compaction_level_&&compaction_score_。
+ *
+ * level 0 与其他层不同，看的是文件个数，因为 level 0 的文件是重叠的，每次读取都需要遍历所有文件，
+ * 所以文件个数更加影响性能。
+ *
+ * 每层的基准大小为10M << ${level - 1}，level = 1 则MaxBytes = 10M, level = 2 则MaxBytes=100M，依次类推.
+ * 逐层比较后，得到最大的得分以及对应层数：compaction_score_ compaction_level_。
+ */
 void VersionSet::Finalize(Version* v) {
   // Precomputed best level for next compaction
   int best_level = -1;
   double best_score = -1;
 
+  //level 0看文件个数，降低seek的次数，提高读性能，个数/4
+  //level >0看文件大小，减少磁盘占用，大小/(10M**level)
+  //例如:
+  //level 0 有4个文件，score = 1.0
+  //level 1 文件大小为9M，score = 0.9
+  //那么compact的level就是0,score = 1.0
   for (int level = 0; level < config::kNumLevels - 1; level++) {
     double score;
     if (level == 0) {
@@ -1306,7 +1332,9 @@ Compaction* VersionSet::PickCompaction() {
 
   // We prefer compactions triggered by too much data in a level over
   // the compactions triggered by seeks.
+  // 文件数过多
   const bool size_compaction = (current_->compaction_score_ >= 1);
+  // seek了多次文件但是没有查到，记录到的file_to_compact_
   const bool seek_compaction = (current_->file_to_compact_ != nullptr);
   if (size_compaction) {
     level = current_->compaction_level_;
